@@ -1,0 +1,26 @@
+# Mark-XXXV — macOS (Apple Silicon M3) Requirements
+# Removed: comtypes, pycaw, win10toast, pywinauto, pygetwindow (Windows-only)
+# Kept and added macOS-compatible equivalents
+
+pyaudio
+google-genai
+google-generativeai
+pillow
+requests
+beautifulsoup4
+duckduckgo-search
+playwright
+pyautogui
+pyperclip
+opencv-python
+numpy
+mss
+psutil
+send2trash
+youtube-transcript-api
+
+# macOS system interaction (optional - for native notifications)
+# pyobjc-core
+# pyobjc-framework-Cocoa
+# pyobjc-framework-Foundation
+sounddevice
