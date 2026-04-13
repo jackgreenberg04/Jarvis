@@ -116,3 +116,29 @@ playwright install chromium
 # Run
 python main.py
 
+
+pip install ytmusicapi yt-dlp python-vlc
+brew install --cask vlc   # VLC app required for python-vlc
+
+# Create a symlink to where the Python vlc module looks
+sudo mkdir -p /usr/local/lib
+sudo ln -s /Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib /usr/local/lib/libvlccore.dylib
+sudo ln -s /Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib /usr/local/lib/libvlc.dylib
+
+Step 3: Install and link the correct libraries
+After moving VLC to /Applications, create symlinks for the ARM64 libraries:
+
+bash
+# Verify the library is ARM64 (should show "arm64")
+file /Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib
+
+# Create symlinks (no sudo needed if /usr/local/lib exists)
+mkdir -p /usr/local/lib
+ln -sf /Applications/VLC.app/Contents/MacOS/lib/libvlccore.dylib /usr/local/lib/libvlccore.dylib
+ln -sf /Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib /usr/local/lib/libvlc.dylib
+Step 4: Reinstall the Python binding and test
+bash
+pip uninstall python-vlc
+pip install python-vlc
+python -c "import vlc; print('Success! VLC loaded')"
+

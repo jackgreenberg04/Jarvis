@@ -1,9 +1,17 @@
+"""
+screen_processor.py — macOS version
+• Uses gemini-2.0-flash-live-001 (high-quota live model)
+• Camera capture: plain cv2.VideoCapture (no CAP_DSHOW)
+• Persistent camera mode: keeps cam open for follow-up questions
+• Screen capture via mss
+"""
 import asyncio
 import base64
 import io
 import json
 import re
 import os
+os.environ["OPENCV_AVFOUNDATION_SKIP_AUTH"] = "1"
 import sys
 import time
 import threading
@@ -43,11 +51,10 @@ JPEG_Q    = 55
 SYSTEM_PROMPT = (
     "You are JARVIS from Iron Man movies. "
     "Analyze images with technical precision and intelligence. "
-    "Help the user in a way they can understand — don't be overly complex. "
-    "Be concise, smart, and helpful like Tony Stark's AI assistant. "
-    "Respond in maximum 2 short sentences. Speed is priority. "
-    "Address the user as 'sir' for a tone of respect. "
-    "Ask if the user needs any further help with their problem."
+    "Help the user understand what they see — be clear, smart, and practical. "
+    "If the user shows you a problem (code, math, error, object), give a solution. "
+    "Be concise. Address the user as 'sir'. "
+    "If asked a follow-up question about the same scene, remember context."
 )
 
 
@@ -64,6 +71,7 @@ def _get_api_key() -> str:
 
 
 def _get_camera_index() -> int:
+    """Detect best camera index on macOS (no CAP_DSHOW)."""
     try:
         with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -72,38 +80,46 @@ def _get_camera_index() -> int:
     except Exception:
         pass
 
-    print("[Camera] 🔍 No camera index in config. Auto-detecting...")
-    best_index = 0
+    print("[Camera] 🔍 Auto-detecting camera...")
+    found_index = None
 
-    for idx in range(6):
-        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+    for idx in range(4):
+        cap = cv2.VideoCapture(idx)
         if not cap.isOpened():
             cap.release()
             continue
+        # Warm up: read a few frames
         for _ in range(5):
             cap.read()
         ret, frame = cap.read()
         cap.release()
         if ret and frame is not None and frame.mean() > 5:
-            best_index = idx
-            print(f"[Camera] ✅ Camera found at index {idx} — saving to config.")
+            found_index = idx
+            print(f"[Camera] ✅ Camera found at index {idx}")
             break
         else:
-            print(f"[Camera] ⚠️  Index {idx}: no valid frame.")
+            print(f"[Camera] ⚠️  Index {idx}: no valid frame")
 
+    if found_index is None:
+        raise RuntimeError(
+            "No camera found. Please go to System Settings → Privacy & Security → Camera "
+            "and grant access to Terminal (or your Python runner), then restart."
+        )
+
+    # Save to config only on success
     try:
         cfg = {}
         if API_CONFIG_PATH.exists():
             with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-        cfg["camera_index"] = best_index
+        cfg["camera_index"] = found_index
         with open(API_CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=4)
-        print(f"[Camera] 💾 Camera index {best_index} saved to config.")
+        print(f"[Camera] 💾 Saved camera index {found_index}")
     except Exception as e:
         print(f"[Camera] ⚠️  Could not save camera index: {e}")
 
-    return best_index
+    return found_index
 
 
 def _to_jpeg(img_bytes: bytes) -> bytes:
@@ -123,27 +139,56 @@ def _capture_screenshot() -> bytes:
     return _to_jpeg(png_bytes)
 
 
+# ── Persistent camera instance ──────────────────────────────────────────────
+_camera_cap        = None
+_camera_cap_lock   = threading.Lock()
+_camera_index      = None
+
+
+def _get_open_camera() -> cv2.VideoCapture:
+    """Return a persistent, already-open camera instance (macOS-safe)."""
+    global _camera_cap, _camera_index
+    with _camera_cap_lock:
+        if _camera_cap is None or not _camera_cap.isOpened():
+            _camera_index = _get_camera_index()
+            _camera_cap   = cv2.VideoCapture(_camera_index)  # no CAP_DSHOW on macOS
+            if not _camera_cap.isOpened():
+                raise RuntimeError(f"Camera index {_camera_index} could not be opened.")
+            # Warm up
+            for _ in range(6):
+                _camera_cap.read()
+            print(f"[Camera] 📷 Camera {_camera_index} opened (persistent)")
+        return _camera_cap
+
+
 def _capture_camera() -> bytes:
-    camera_index = _get_camera_index()
-    cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        raise RuntimeError(f"Camera could not be opened: index {camera_index}")
-    for _ in range(10):
-        cap.read()
-    ret, frame = cap.read()
-    cap.release()
+    """Capture one frame from the persistent camera."""
+    cap = _get_open_camera()
+    with _camera_cap_lock:
+        ret, frame = cap.read()
     if not ret or frame is None:
-        raise RuntimeError("Could not capture camera frame.")
+        # Try re-opening once
+        with _camera_cap_lock:
+            global _camera_cap
+            _camera_cap = None
+        cap = _get_open_camera()
+        with _camera_cap_lock:
+            ret, frame = cap.read()
+        if not ret or frame is None:
+            raise RuntimeError("Could not capture camera frame.")
+
     if _PIL_OK:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = PIL.Image.fromarray(rgb)
         img.thumbnail([IMG_MAX_W, IMG_MAX_H], PIL.Image.BILINEAR)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=JPEG_Q, optimize=False)
+        img.save(buf, format="JPEG", quality=JPEG_Q)
         return buf.getvalue()
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_Q])
     return buf.tobytes()
 
+
+# ── Live Gemini session for vision Q&A ─────────────────────────────────────
 
 class _LiveSession:
 
@@ -168,7 +213,7 @@ class _LiveSession:
         ok = self._ready.wait(timeout=20)
         if not ok:
             raise RuntimeError("Vision session did not start within 20s.")
-        print("[ScreenProcess] ✅ Vision session ready (no mic)")
+        print("[ScreenProcess] ✅ Vision session ready")
 
     def _run_loop(self):
         self._loop = asyncio.new_event_loop()
@@ -210,7 +255,7 @@ class _LiveSession:
                         tg.create_task(self._recv_loop())
                         tg.create_task(self._play_loop())
             except Exception as e:
-                print(f"[ScreenProcess] ⚠️ Disconnected: {e} — reconnecting...")
+                print(f"[ScreenProcess] ⚠️ Disconnected: {e} — reconnecting in 2s...")
                 self._session = None
                 self._ready.clear()
                 await asyncio.sleep(2)
@@ -232,7 +277,7 @@ class _LiveSession:
                         },
                         turn_complete=True
                     )
-                    print("[ScreenProcess] ✅ Image sent")
+                    print("[ScreenProcess] ✅ Image+question sent")
                 except Exception as e:
                     print(f"[ScreenProcess] ⚠️ Send error: {e}")
 
@@ -309,15 +354,21 @@ def _ensure_started(player=None):
 
 def screen_process(
     parameters:     dict,
-    response:       str | None = None,
+    response=None,
     player=None,
     session_memory=None,
 ) -> bool:
+    """
+    Capture screen or camera and send to Gemini vision for spoken analysis.
+
+    parameters:
+        angle  : "screen" | "camera"  (default: "screen")
+        text   : the user's question about the image
+    """
     user_text = (parameters or {}).get("text") or (parameters or {}).get("user_text", "")
     user_text = (user_text or "").strip()
     if not user_text:
-        print("[ScreenProcess] ⚠️ No user_text provided.")
-        return False
+        user_text = "What do you see? Describe it concisely."
 
     angle = (parameters or {}).get("angle", "screen").lower().strip()
     print(f"[ScreenProcess] angle={angle!r}  text={user_text!r}")
@@ -328,17 +379,18 @@ def screen_process(
         if angle == "camera":
             image_bytes = _capture_camera()
             mime_type   = "image/jpeg"
-            print("[ScreenProcess] 📷 Camera captured")
+            print(f"[ScreenProcess] 📷 Camera captured ({len(image_bytes)} bytes)")
         else:
             image_bytes = _capture_screenshot()
             mime_type   = "image/jpeg" if _PIL_OK else "image/png"
-            print("[ScreenProcess] 🖥️ Screen captured")
+            print(f"[ScreenProcess] 🖥️ Screen captured ({len(image_bytes)} bytes)")
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"[ScreenProcess] ❌ Capture error: {e}")
+        if player:
+            player.write_log(f"ERR: Camera/screen capture failed: {e}")
         return False
 
-    print(f"[ScreenProcess] 📦 {len(image_bytes)} bytes → sending")
     _live.analyze(image_bytes, mime_type, user_text)
     return True
 
@@ -348,20 +400,3 @@ def warmup_session(player=None):
         _ensure_started(player=player)
     except Exception as e:
         print(f"[ScreenProcess] ⚠️ Warmup error: {e}")
-
-
-if __name__ == "__main__":
-    print("[TEST] screen_processor.py v8 — image-only session")
-    print("=" * 50)
-    mode    = input("screen / camera (default: screen): ").strip().lower() or "screen"
-    request = input("Question (Enter for default): ").strip() or "What do you see? Be brief."
-
-    t0 = time.perf_counter()
-    warmup_session()
-    print(f"Session ready — {time.perf_counter()-t0:.2f}s\n")
-
-    t1     = time.perf_counter()
-    result = screen_process({"angle": mode, "text": request}, player=None)
-    print(f"Sent — {time.perf_counter()-t1:.3f}s | audio incoming...")
-    time.sleep(8)
-    print(f"\n{'✅' if result else '❌'}")

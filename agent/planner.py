@@ -182,7 +182,7 @@ def create_plan(goal: str, context: str = "") -> dict:
 
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel(
-        model_name="gemini-3.1-flash-lite",
+        model_name="gemini-3.1-flash-lite-preview",
         system_instruction=PLANNER_PROMPT
     )
 

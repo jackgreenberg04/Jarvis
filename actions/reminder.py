@@ -1,14 +1,9 @@
 # actions/reminder.py — macOS version
-# Uses 'at' command (or launchd plist) for macOS scheduling
-# Falls back to a background thread for simple reminders
 
 import subprocess
-import os
-import sys
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 
 
 def _show_macos_notification(title: str, message: str) -> None:
@@ -20,10 +15,27 @@ def _show_macos_notification(title: str, message: str) -> None:
         print(f"[Reminder] ⚠️ Notification error: {e}")
 
 
-def _reminder_thread(delay_seconds: float, message: str, title: str) -> None:
-    """Background thread that waits then fires the reminder."""
+def _reminder_thread(delay_seconds: float, message: str, title: str, speak=None, player=None) -> None:
+    """Background thread: waits, then fires notification AND speaks via JARVIS."""
     time.sleep(delay_seconds)
+
+    # 1. macOS system notification (shows in notification centre)
     _show_macos_notification(title, message)
+
+    # 2. JARVIS speaks the reminder out loud
+    if speak:
+        try:
+            speak(f"Repeat sentence: Sir, reminder: {message}")
+        except Exception as e:
+            print(f"[Reminder] ⚠️ speak failed: {e}")
+
+    # 3. Log to UI
+    if player:
+        try:
+            player.write_log(f"🔔 Reminder: {message}")
+        except Exception:
+            pass
+
     print(f"[Reminder] 🔔 Fired: {message}")
 
 
@@ -31,10 +43,12 @@ def reminder(
     parameters: dict,
     response=None,
     player=None,
-    session_memory=None
+    session_memory=None,
+    speak=None,
 ) -> str:
     """
-    Sets a timed reminder on macOS using a background thread + osascript notification.
+    Sets a timed reminder on macOS.
+    Fires a macOS notification AND makes JARVIS speak the reminder aloud.
 
     parameters:
         - date    (str) YYYY-MM-DD
@@ -59,8 +73,9 @@ def reminder(
 
         t = threading.Thread(
             target=_reminder_thread,
-            args=(delay_seconds, safe_message, "MARK Reminder"),
-            daemon=False
+            args=(delay_seconds, safe_message, "J.A.R.V.I.S Reminder"),
+            kwargs={"speak": speak, "player": player},
+            daemon=False,
         )
         t.start()
 

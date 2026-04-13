@@ -24,3 +24,7 @@ youtube-transcript-api
 # pyobjc-framework-Cocoa
 # pyobjc-framework-Foundation
 sounddevice
+SpeechRecognition
+ytmusicapi 
+yt-dlp 
+python-vlc
