@@ -1,3 +1,4 @@
+import re
 import asyncio
 import threading
 import os
@@ -451,6 +452,13 @@ class JarvisLive:
         self.ui.on_text_command = self._on_text_command
 
     def _on_text_command(self, text: str):
+        lower = text.lower()
+        if "wake up" in lower and "jarvis" in lower:
+            if self.ui.muted: self.ui._toggle_mute()
+            return
+        if "go to sleep" in lower and "jarvis" in lower:
+            if not self.ui.muted: self.ui._toggle_mute()
+            return
         if not self._loop or not self.session:
             return
         asyncio.run_coroutine_threadsafe(
@@ -712,6 +720,42 @@ class JarvisLive:
                             self.set_speaking(False)
 
                             full_in = " ".join(in_buf).strip()
+                            full_in = re.sub(r"\s+([,.!?;:'])", r'\1', full_in)
+                            full_in = re.sub(r'\s+', ' ', full_in)
+                            full_in = re.sub(r'(?<=[a-z,])\s+([A-Z][a-z])', lambda m: ' ' + m.group(1).lower(), full_in)
+                            full_in = re.sub(r'\bja\s+rvis\b', 'Jarvis', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bno\s+thing\b', 'nothing', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bsome\s+thing\b', 'something', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bany\s+thing\b', 'anything', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bevery\s+thing\b', 'everything', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bex\s+cellent\b', 'excellent', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bwat\s+ching\b', 'watching', full_in, flags=re.IGNORECASE)
+                            # sports & common compound words
+                            full_in = re.sub(r'\bbas\s+ket\s*ball\b', 'basketball', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bbase\s+ball\b', 'baseball', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bfoot\s+ball\b', 'football', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bsoc\s+cer\b', 'soccer', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bten\s+nis\b', 'tennis', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bvolley\s+ball\b', 'volleyball', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bhockey\b', 'hockey', full_in, flags=re.IGNORECASE)
+                            # anywhere / everywhere / somewhere / nowhere
+                            full_in = re.sub(r'\bany\s+where\b', 'anywhere', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bevery\s+where\b', 'everywhere', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bsome\s+where\b', 'somewhere', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bno\s+where\b', 'nowhere', full_in, flags=re.IGNORECASE)
+                            # whatever / whenever / however / whoever / wherever
+                            full_in = re.sub(r'\bwhat\s+ever\b', 'whatever', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bwhen\s+ever\b', 'whenever', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bhow\s+ever\b', 'however', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bwho\s+ever\b', 'whoever', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bwhere\s+ever\b', 'wherever', full_in, flags=re.IGNORECASE)
+                            # other commonly split words
+                            full_in = re.sub(r'\bto\s+day\b', 'today', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bto\s+night\b', 'tonight', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bto\s+morrow\b', 'tomorrow', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\byester\s+day\b', 'yesterday', full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bwhat\s+\'?s\b', "what's", full_in, flags=re.IGNORECASE)
+                            full_in = re.sub(r'\bjarvis\b', 'Jarvis', full_in)
                             if full_in:
                                 self.ui.write_log(f"You: {full_in}")
                             in_buf = []
