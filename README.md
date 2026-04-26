@@ -1,4 +1,4 @@
-# 🤖 MARK XXXV — macOS Edition (Apple Silicon M3)
+# 🤖 JARVIS AI ASSISTANT — macOS Edition (Apple Silicon M3)
 
 This is a macOS-compatible port of Mark-XXXV by FatihMakes.
 Original project: https://github.com/FatihMakes/Mark-XXXV
